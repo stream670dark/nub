@@ -10,6 +10,9 @@ pub const Kind = enum {
     nub_plus,
     nub_minus,
 
+    nub_asterisk,
+    nub_slash,
+
     nub_eof,
     nub_unknown,
 };
