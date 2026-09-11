@@ -4,7 +4,7 @@
 const std = @import("std");
 const Token = @import("Token.zig");
 
-const source = "  1 + 2 + 2 - 1";
+const raw_source = "  1 + 2 + 2 * 4 / 7 + 4 * 3 / 8 - 12 + 2 * 9 * 2 / 4 / 4 / 6";
 
 pub const Ast = struct {
     nodes: std.ArrayList(NodeKind),
@@ -20,7 +20,7 @@ pub const Ast = struct {
 
     pub const BinaryOp = struct {
         left: NodeIndex,
-        op: []const u8,
+        op: Token.Kind,
         right: NodeIndex,
     };
 
@@ -49,59 +49,114 @@ pub const Ast = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    try parse(init.gpa);
+    var parser = Parser.init(init.gpa, raw_source);
+    try parser.parse();
 }
 
-pub fn parse(allocator: std.mem.Allocator) !void {
-    var lexer = Lexer.init(source);
-    var ast = Ast.init(allocator);
-    defer ast.deinit();
-    var token = lexer.nextToken();
-    while (token.kind != .nub_eof) {
+pub const Parser = struct {
+    lexer: Lexer,
+    ast: Ast,
+
+    pub fn init(allocator: std.mem.Allocator, source: []const u8) Parser {
+        return .{
+            .lexer = Lexer.init(source),
+            .ast = Ast.init(allocator),
+        };
+    }
+
+    pub fn parse(self: *Parser) !void {
+        defer self.ast.deinit();
+        while (self.lexer.peekToken() != .nub_eof) {
+            const token = self.lexer.peekToken();
+            switch (token) {
+                .nub_var => {
+                    //TODO
+                    _ = self.lexer.nextToken();
+                },
+                .nub_int => {
+                    const tree = try self.parseExpression(0);
+                    const result = evaluate(&self.ast, tree);
+                    std.debug.print("result: {d}\n", .{result});
+                },
+                else => {
+                    _ = self.lexer.nextToken();
+                },
+            }
+        }
+    }
+
+    fn getBindingPower(kind: Token.Kind) ?u8 {
+        return switch (kind) {
+            .nub_plus, .nub_minus => 1,
+            .nub_asterisk, .nub_slash => 2,
+            else => null,
+        };
+    }
+
+    fn parsePrimary(self: *Parser) !Ast.NodeIndex {
+        const token = self.lexer.nextToken();
+
         switch (token.kind) {
-            .nub_var => {
-                //TODO
-            },
             .nub_int => {
-                var left_val = try ast.addNode(.{ .int_literal = try std.fmt.parseInt(i64, token.lexeme, 10) });
+                const value = try std.fmt.parseInt(i64, token.lexeme, 10);
+                return try self.ast.addNode(.{ .int_literal = value });
+            },
+            else => return error.UnexpectedToken,
+        }
+    }
 
-                while ((lexer.peekToken() == .nub_plus) or (lexer.peekToken() == .nub_minus)) {
-                    const op = lexer.nextToken();
+    fn parseExpression(self: *Parser, min_bp: u8) !Ast.NodeIndex {
+        var left = try self.parsePrimary();
 
-                    const val = lexer.nextToken();
-                    const right_val = try ast.addNode(.{ .int_literal = try std.fmt.parseInt(i64, val.lexeme, 10) });
+        while (true) {
+            const next_token_kind = self.lexer.peekToken();
 
-                    const node = try ast.addNode(.{
-                        .binary_op = .{
-                            .left = left_val,
-                            .op = op.lexeme,
-                            .right = right_val,
-                        },
-                    });
+            const bp = getBindingPower(next_token_kind) orelse break;
 
-                    var result: u32 = undefined;
+            if (bp <= min_bp) break;
 
-                    switch (ast.nodes.items[node]) {
-                        .binary_op => {
-                            switch (op.kind) {
-                                .nub_plus => result = try ast.addNode(.{ .int_literal = ast.nodes.items[left_val].int_literal + ast.nodes.items[right_val].int_literal }),
-                                .nub_minus => result = try ast.addNode(.{ .int_literal = ast.nodes.items[left_val].int_literal - ast.nodes.items[right_val].int_literal }),
-                                else => unreachable,
-                            }
-                        },
-                        else => unreachable,
-                    }
+            const op = self.lexer.nextToken();
 
-                    std.debug.print("{d} {s} {d} -> {d}\n", .{ ast.nodes.items[left_val].int_literal, ast.nodes.items[node].binary_op.op, ast.nodes.items[right_val].int_literal, ast.nodes.items[result].int_literal });
+            const right = try self.parseExpression(bp);
 
-                    left_val = result;
+            left = try self.ast.addNode(.{
+                .binary_op = .{
+                    .left = left,
+                    .op = op.kind,
+                    .right = right,
+                },
+            });
+        }
+
+        return left;
+    }
+
+    fn evaluate(ast: *Ast, index: Ast.NodeIndex) i64 {
+        return switch (ast.nodes.items[index]) {
+            .int_literal => |val| val,
+            .binary_op => |op| {
+                const left = evaluate(ast, op.left);
+                const right = evaluate(ast, op.right);
+                switch (op.op) {
+                    .nub_plus => return left + right,
+                    .nub_minus => return left - right,
+                    .nub_asterisk => return left * right,
+                    .nub_slash => {
+                        const remaider = @rem(left, right);
+                        if (@rem(left, right) != 0) std.debug.print("warn: {d} / {d} result is rounded\n", .{ left, right });
+                        var result = @divTrunc(left, right);
+                        const abs_rem = if (remaider < 0) -remaider else remaider;
+                        const abs_div = if (right < 0) -right else right;
+                        if (abs_rem * 2 >= abs_div) result += if ((left < 0) != (right < 0)) -1 else 1;
+                        return result;
+                    },
+                    else => unreachable,
                 }
             },
-            else => {},
-        }
-        token = lexer.nextToken();
+            .variable => unreachable, //TODO
+        };
     }
-}
+};
 
 const Lexer = struct {
     source: []const u8,
@@ -161,6 +216,14 @@ const Lexer = struct {
             '-' => token = .{
                 .kind = .nub_minus,
                 .lexeme = "-",
+            },
+            '*' => token = .{
+                .kind = .nub_asterisk,
+                .lexeme = "*",
+            },
+            '/' => token = .{
+                .kind = .nub_slash,
+                .lexeme = "/",
             },
             else => token = .{
                 .kind = .nub_unknown,
