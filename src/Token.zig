@@ -19,6 +19,8 @@ pub const Kind = enum {
 
     nub_print,
 
+    nub_print,
+
     nub_eof,
     nub_unknown,
 };

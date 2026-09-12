@@ -151,6 +151,10 @@ pub const Parser = struct {
             .nub_string => {
                 return try self.ast.addNode(.{ .type = .{ .string = token.lexeme } });
             },
+            .nub_id => {
+                const node_index = self.variables.get(token.lexeme) orelse return error.UndefinedVariable;
+                return node_index;
+            },
             else => return error.UnexpectedToken,
         }
     }
