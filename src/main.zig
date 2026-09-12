@@ -4,8 +4,6 @@
 const std = @import("std");
 const Token = @import("Token.zig");
 
-const raw_source = "  var x = 10 + 4 * 2 x + 2 / 4 * x";
-
 pub const Ast = struct {
     nodes: std.ArrayList(NodeKind),
     allocator: std.mem.Allocator,
@@ -13,10 +11,15 @@ pub const Ast = struct {
     pub const NodeIndex = u32;
 
     pub const NodeKind = union(enum) {
+        type: Value,
         variable: Variable,
-        int_literal: i64,
         binary_op: BinaryOp,
         print: NodeIndex,
+    };
+
+    pub const Value = union(enum) {
+        int: i64,
+        string: []const u8,
     };
 
     pub const BinaryOp = struct {
@@ -50,7 +53,25 @@ pub const Ast = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var parser = Parser.init(init.gpa, raw_source);
+    var args = try init.minimal.args.iterateAllocator(init.gpa);
+    defer args.deinit();
+
+    _ = args.skip();
+
+    const filepath = args.next() orelse {
+        std.log.err("usage: nub <file.nub>", .{});
+        return;
+    };
+
+    if (!std.mem.endsWith(u8, filepath, ".nub")) {
+        std.log.err("'{s}' is not a .nub file", .{filepath});
+        return;
+    }
+
+    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, filepath, init.gpa, .unlimited);
+    defer init.gpa.free(source);
+
+    var parser = Parser.init(init.gpa, source);
     try parser.parse();
 }
 
@@ -89,8 +110,16 @@ pub const Parser = struct {
                 },
                 .nub_int, .nub_id => {
                     const tree = try self.parseExpression(0);
-                    const result = evaluate(&self.ast, tree);
-                    std.debug.print("result: {d}\n", .{result});
+                    _ = evaluate(&self.ast, tree);
+                },
+
+                .nub_print => {
+                    _ = self.lexer.nextToken();
+                    //_ = self.lexer.nextToken(); TODO
+                    const expr = try self.parseExpression(0);
+                    //_ = self.lexer.nextToken(); TODO
+                    const node = try self.ast.addNode(.{ .print = expr });
+                    _ = evaluate(&self.ast, node);
                 },
                 else => {
                     _ = self.lexer.nextToken();
@@ -113,7 +142,14 @@ pub const Parser = struct {
         switch (token.kind) {
             .nub_int => {
                 const value = try std.fmt.parseInt(i64, token.lexeme, 10);
-                return try self.ast.addNode(.{ .int_literal = value });
+                return try self.ast.addNode(.{ .type = .{ .int = value } });
+            },
+            .nub_id => {
+                const node_index = self.variables.get(token.lexeme) orelse return error.UndefinedVariable;
+                return node_index;
+            },
+            .nub_string => {
+                return try self.ast.addNode(.{ .type = .{ .string = token.lexeme } });
             },
             .nub_id => {
                 const node_index = self.variables.get(token.lexeme) orelse return error.UndefinedVariable;
@@ -149,30 +185,41 @@ pub const Parser = struct {
         return left;
     }
 
-    fn evaluate(ast: *Ast, index: Ast.NodeIndex) i64 {
+    fn evaluate(ast: *Ast, index: Ast.NodeIndex) Ast.Value {
         return switch (ast.nodes.items[index]) {
-            .int_literal => |val| val,
+            .type => |val| val,
             .binary_op => |op| {
-                const left = evaluate(ast, op.left);
-                const right = evaluate(ast, op.right);
-                switch (op.op) {
-                    .nub_plus => return left + right,
-                    .nub_minus => return left - right,
-                    .nub_asterisk => return left * right,
-                    .nub_slash => {
-                        const remaider = @rem(left, right);
-                        if (@rem(left, right) != 0) std.debug.print("warn: {d} / {d} result is rounded\n", .{ left, right });
-                        var result = @divTrunc(left, right);
-                        const abs_rem = if (remaider < 0) -remaider else remaider;
-                        const abs_div = if (right < 0) -right else right;
-                        if (abs_rem * 2 >= abs_div) result += if ((left < 0) != (right < 0)) -1 else 1;
-                        return result;
+                const left = evaluate(ast, op.left).int;
+                const right = evaluate(ast, op.right).int;
+                return switch (op.op) {
+                    .nub_plus => return .{ .int = left + right },
+                    .nub_minus => return .{ .int = left - right },
+                    .nub_asterisk => return .{ .int = left * right },
+                    .nub_slash => .{
+                        .int = blk: {
+                            const remainder = @rem(left, right);
+                            if (remainder != 0) std.debug.print("warn: {d} / {d} result is rounded\n", .{ left, right });
+                            var result = @divTrunc(left, right);
+                            const abs_rem = if (remainder < 0) -remainder else remainder;
+                            const abs_div = if (right < 0) -right else right;
+                            if (abs_rem * 2 >= abs_div) result += if ((left < 0) != (right < 0)) -1 else 1;
+                            break :blk result;
+                        },
                     },
+
                     else => unreachable,
-                }
+                };
             },
             .variable => |v| evaluate(ast, v.value),
-            else => unreachable,
+            .print => |expr| {
+                const value = evaluate(ast, expr);
+                switch (value) {
+                    .int => |v| std.debug.print("{d}\n", .{v}),
+                    .string => |v| std.debug.print("{s}\n", .{v}),
+                }
+                return value;
+            },
+            // else => unreachable,
         };
     }
 };
@@ -245,8 +292,16 @@ const Lexer = struct {
                 .lexeme = "/",
             },
             '=' => token = .{
-                .kind = .nub_equals,
+                .kind = .nub_assign,
                 .lexeme = "=",
+            },
+            // ';' => token = .{
+            //     .kind = .nub_semicolon,
+            //     .lexeme = ";",
+            // }, TODO
+            '"' => {
+                self.cursor += 1;
+                return self.readString();
             },
             else => token = .{
                 .kind = .nub_unknown,
@@ -256,6 +311,22 @@ const Lexer = struct {
 
         self.cursor += 1;
         return token;
+    }
+
+    fn readString(self: *@This()) Token {
+        const start = self.cursor;
+
+        while (self.source.len > self.cursor and self.source[self.cursor] != '"') {
+            self.cursor += 1;
+        }
+
+        const lexeme = self.source[start..self.cursor];
+        self.cursor += 1;
+
+        return .{
+            .kind = .nub_string,
+            .lexeme = lexeme,
+        };
     }
 
     fn readNumber(self: *@This()) Token {

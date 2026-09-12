@@ -6,12 +6,18 @@ pub const Kind = enum {
     nub_const,
     nub_id,
     nub_int,
+    nub_string,
+
+    nub_type,
 
     nub_plus,
     nub_minus,
-    nub_equals,
+    nub_assign,
     nub_asterisk,
     nub_slash,
+    nub_semicolon,
+
+    nub_print,
 
     nub_print,
 
