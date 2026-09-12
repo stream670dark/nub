@@ -4,7 +4,7 @@
 const std = @import("std");
 const Token = @import("Token.zig");
 
-const raw_source = "  1 + 2 + 2 * 4 / 7 + 4 * 3 / 8 - 12 + 2 * 9 * 2 / 4 / 4 / 6";
+const raw_source = "  var x = 10 + 4 * 2 x + 2 / 4 * x";
 
 pub const Ast = struct {
     nodes: std.ArrayList(NodeKind),
@@ -16,6 +16,7 @@ pub const Ast = struct {
         variable: Variable,
         int_literal: i64,
         binary_op: BinaryOp,
+        print: NodeIndex,
     };
 
     pub const BinaryOp = struct {
@@ -27,7 +28,7 @@ pub const Ast = struct {
     pub const Variable = struct {
         name: []const u8,
         kind: ?[]const u8,
-        value: ?[]const u8,
+        value: NodeIndex,
     };
 
     pub fn init(allocator: std.mem.Allocator) @This() {
@@ -56,24 +57,37 @@ pub fn main(init: std.process.Init) !void {
 pub const Parser = struct {
     lexer: Lexer,
     ast: Ast,
+    variables: std.StringHashMap(Ast.NodeIndex),
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Parser {
         return .{
             .lexer = Lexer.init(source),
             .ast = Ast.init(allocator),
+            .variables = std.StringHashMap(Ast.NodeIndex).init(allocator),
         };
     }
 
     pub fn parse(self: *Parser) !void {
         defer self.ast.deinit();
+        defer self.variables.deinit();
         while (self.lexer.peekToken() != .nub_eof) {
             const token = self.lexer.peekToken();
             switch (token) {
                 .nub_var => {
-                    //TODO
                     _ = self.lexer.nextToken();
+                    const name = self.lexer.nextToken();
+                    _ = self.lexer.nextToken();
+                    const expr = try self.parseExpression(0);
+                    _ = try self.ast.addNode(.{
+                        .variable = .{
+                            .name = name.lexeme,
+                            .kind = null,
+                            .value = expr,
+                        },
+                    });
+                    try self.variables.put(name.lexeme, expr);
                 },
-                .nub_int => {
+                .nub_int, .nub_id => {
                     const tree = try self.parseExpression(0);
                     const result = evaluate(&self.ast, tree);
                     std.debug.print("result: {d}\n", .{result});
@@ -100,6 +114,10 @@ pub const Parser = struct {
             .nub_int => {
                 const value = try std.fmt.parseInt(i64, token.lexeme, 10);
                 return try self.ast.addNode(.{ .int_literal = value });
+            },
+            .nub_id => {
+                const node_index = self.variables.get(token.lexeme) orelse return error.UndefinedVariable;
+                return node_index;
             },
             else => return error.UnexpectedToken,
         }
@@ -153,7 +171,8 @@ pub const Parser = struct {
                     else => unreachable,
                 }
             },
-            .variable => unreachable, //TODO
+            .variable => |v| evaluate(ast, v.value),
+            else => unreachable,
         };
     }
 };
@@ -225,6 +244,10 @@ const Lexer = struct {
                 .kind = .nub_slash,
                 .lexeme = "/",
             },
+            '=' => token = .{
+                .kind = .nub_equals,
+                .lexeme = "=",
+            },
             else => token = .{
                 .kind = .nub_unknown,
                 .lexeme = "",
@@ -274,4 +297,5 @@ const Lexer = struct {
 
 const keyword = std.StaticStringMap(Token.Kind).initComptime(.{
     .{ "var", .nub_var },
+    .{ "print", .nub_print },
 });
