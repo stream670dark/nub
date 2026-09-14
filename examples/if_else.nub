@@ -1,0 +1,2 @@
+var x = 15;
+if (x <= 10) 4 else print if (x > 11) "grande" else "pequeno";
