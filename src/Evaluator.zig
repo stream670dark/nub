@@ -4,46 +4,243 @@
 const std = @import("std");
 const Ast = @import("Ast.zig");
 
-pub fn evaluate(ast: *Ast, index: Ast.NodeIndex, env: *std.StringHashMap(Ast.Value)) Ast.Value {
+pub fn evaluate(ast: *Ast, index: Ast.NodeIndex, env: *std.StringHashMap(Ast.Value)) !Ast.Value {
     return switch (ast.nodes.items[index]) {
         .type => |val| val,
         .unary_op => |op| {
-            const expr = evaluate(ast, op.expr, env);
+            const expr = try evaluate(ast, op.expr, env);
             return switch (op.op) {
-                .nub_minus => .{ .int = -expr.int },
+                .nub_minus => switch (expr) {
+                    .int => |v| .{ .int = -v },
+                    .float => |v| .{ .float = -v },
+                    else => unreachable,
+                },
                 else => unreachable,
             };
         },
         .binary_op => |op| {
-            const left = evaluate(ast, op.left, env);
-            const right = evaluate(ast, op.right, env);
+            const left = try evaluate(ast, op.left, env);
+            const right = try evaluate(ast, op.right, env);
             return switch (op.op) {
-                .nub_plus => return .{ .int = left.int + right.int },
-                .nub_minus => return .{ .int = left.int - right.int },
-                .nub_asterisk => return .{ .int = left.int * right.int },
-                .nub_slash => .{
-                    .int = blk: {
-                        const remainder = @rem(left.int, right.int);
-                        if (remainder != 0) std.debug.print("warn: {d} / {d} result is rounded\n", .{ left.int, right.int });
-                        var result = @divTrunc(left.int, right.int);
-                        const abs_rem = if (remainder < 0) -remainder else remainder;
-                        const abs_div = if (right.int < 0) -right.int else right.int;
-                        if (abs_rem * 2 >= abs_div) result += if ((left.int < 0) != (right.int < 0)) -1 else 1;
-                        break :blk result;
+                .nub_plus => switch (left) {
+                    .int => |l_val| {
+                        switch (right) {
+                            .int => |r_val| return .{
+                                .int = l_val + r_val,
+                            },
+                            else => unreachable,
+                        }
                     },
+                    .float => |l_val| {
+                        switch (right) {
+                            .float => |r_val| return .{
+                                .float = l_val + r_val,
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .string => |l_val| {
+                        switch (right) {
+                            .string => |r_val| return .{
+                                .string = try std.mem.concat(env.allocator, u8, &.{ l_val, r_val }),
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    else => unreachable,
                 },
-                .nub_equals => .{ .boolean = left.int == right.int },
-                .nub_not_equals => .{ .boolean = left.int != right.int },
-                .nub_less_than => .{ .boolean = left.int < right.int },
-                .nub_greater_than => .{ .boolean = left.int > right.int },
-                .nub_less_equals => .{ .boolean = left.int <= right.int },
-                .nub_greater_equals => .{ .boolean = left.int >= right.int },
+                .nub_minus => switch (left) {
+                    .int => |l_val| {
+                        switch (right) {
+                            .int => |r_val| return .{
+                                .int = l_val - r_val,
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .float => |l_val| {
+                        switch (right) {
+                            .float => |r_val| return .{
+                                .float = l_val - r_val,
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    else => unreachable,
+                },
+                .nub_asterisk => switch (left) {
+                    .int => |l_val| {
+                        switch (right) {
+                            .int => |r_val| return .{
+                                .int = l_val * r_val,
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .float => |l_val| {
+                        switch (right) {
+                            .float => |r_val| return .{
+                                .float = l_val * r_val,
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    else => unreachable,
+                },
+                .nub_slash => switch (left) {
+                    .int => |l_val| {
+                        switch (right) {
+                            .int => |r_val| return .{ .int = blk: {
+                                const remainder = @rem(l_val, r_val);
+                                if (remainder != 0) std.debug.print("warn: {d} / {d} result is rounded\n", .{ l_val, r_val });
+                                var result = @divTrunc(l_val, r_val);
+                                const abs_rem = if (remainder < 0) -remainder else remainder;
+                                const abs_div = if (r_val < 0) -r_val else r_val;
+                                if (abs_rem * 2 >= abs_div) result += if ((l_val < 0) != (r_val < 0)) -1 else 1;
+                                break :blk result;
+                            } },
+                            else => unreachable,
+                        }
+                    },
+                    .float => |l_val| {
+                        switch (right) {
+                            .float => |r_val| return .{
+                                .float = l_val / r_val,
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    else => unreachable,
+                },
+                .nub_less_than => switch (left) {
+                    .int => |l_val| switch (right) {
+                        .int => |r_val| .{ .boolean = l_val < r_val },
+                        else => unreachable,
+                    },
+                    .float => |l_val| switch (right) {
+                        .float => |r_val| .{ .boolean = l_val < r_val },
+                        else => unreachable,
+                    },
+                    .string => |l_val| switch (right) {
+                        .string => |r_val| .{
+                            .boolean = (std.mem.order(u8, l_val, r_val) == .lt),
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                .nub_greater_than => switch (left) {
+                    .int => |l_val| switch (right) {
+                        .int => |r_val| .{ .boolean = l_val > r_val },
+                        else => unreachable,
+                    },
+                    .float => |l_val| switch (right) {
+                        .float => |r_val| .{ .boolean = l_val > r_val },
+                        else => unreachable,
+                    },
+                    .string => |l_val| switch (right) {
+                        .string => |r_val| .{
+                            .boolean = (std.mem.order(u8, l_val, r_val) == .gt),
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                .nub_less_equals => switch (left) {
+                    .int => |l_val| switch (right) {
+                        .int => |r_val| .{ .boolean = l_val <= r_val },
+                        else => unreachable,
+                    },
+                    .float => |l_val| switch (right) {
+                        .float => |r_val| .{ .boolean = l_val <= r_val },
+                        else => unreachable,
+                    },
+                    .string => |l_val| switch (right) {
+                        .string => |r_val| .{
+                            .boolean = (std.mem.order(u8, l_val, r_val) == .eq or std.mem.order(u8, l_val, r_val) == .lt),
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                .nub_greater_equals => switch (left) {
+                    .int => |l_val| switch (right) {
+                        .int => |r_val| .{ .boolean = l_val >= r_val },
+                        else => unreachable,
+                    },
+                    .float => |l_val| switch (right) {
+                        .float => |r_val| .{ .boolean = l_val >= r_val },
+                        else => unreachable,
+                    },
+                    .string => |l_val| switch (right) {
+                        .string => |r_val| .{
+                            .boolean = (std.mem.order(u8, l_val, r_val) == .eq or std.mem.order(u8, l_val, r_val) == .gt),
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                .nub_equals => switch (left) {
+                    .int => |l_val| switch (right) {
+                        .int => |r_val| .{ .boolean = l_val == r_val },
+                        else => unreachable,
+                    },
+                    .float => |l_val| switch (right) {
+                        .float => |r_val| .{ .boolean = l_val == r_val },
+                        else => unreachable,
+                    },
+                    .boolean => |l_val| switch (right) {
+                        .boolean => |r_val| .{ .boolean = l_val == r_val },
+                        else => unreachable,
+                    },
+                    .string => |l_val| switch (right) {
+                        .string => |r_val| .{
+                            .boolean = std.mem.eql(u8, l_val, r_val),
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                .nub_not_equals => switch (left) {
+                    .int => |l_val| switch (right) {
+                        .int => |r_val| .{ .boolean = l_val != r_val },
+                        else => unreachable,
+                    },
+                    .float => |l_val| switch (right) {
+                        .float => |r_val| .{ .boolean = l_val != r_val },
+                        else => unreachable,
+                    },
+                    .boolean => |l_val| switch (right) {
+                        .boolean => |r_val| .{ .boolean = l_val != r_val },
+                        else => unreachable,
+                    },
+                    .string => |l_val| switch (right) {
+                        .string => |r_val| .{
+                            .boolean = !std.mem.eql(u8, l_val, r_val),
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
                 else => unreachable,
             };
         },
         .variable => |expr| {
-            const value = evaluate(ast, expr.value, env);
+            const value = try evaluate(ast, expr.value, env);
             env.put(expr.name, value) catch unreachable;
+            return .{ .none = {} };
+        },
+        .reassign => |r| {
+            const target_node = ast.nodes.items[r.target];
+            if (target_node != .identifier) unreachable;
+
+            const name = target_node.identifier;
+
+            if (!env.contains(name)) unreachable;
+
+            const new_value = try evaluate(ast, r.value, env);
+            env.put(name, new_value) catch unreachable;
+
             return .{ .none = {} };
         },
         .identifier => |name| {
@@ -51,33 +248,46 @@ pub fn evaluate(ast: *Ast, index: Ast.NodeIndex, env: *std.StringHashMap(Ast.Val
             return value;
         },
         .discard => |expr| {
-            _ = evaluate(ast, expr, env);
+            _ = try evaluate(ast, expr, env);
             return .{ .none = {} };
         },
         .print => |expr| {
-            const value = evaluate(ast, expr, env);
+            const value = try evaluate(ast, expr, env);
             switch (value) {
                 .int => |v| std.debug.print("{d}\n", .{v}),
+                .float => |v| std.debug.print("{d}\n", .{v}),
                 .string => |v| std.debug.print("{s}\n", .{v}),
-                .boolean => |v| std.debug.print("{}", .{v}),
-                .none => |v| std.debug.print("{any}", .{v}),
+                .boolean => |v| std.debug.print("{}\n", .{v}),
+                .none => |v| std.debug.print("{any}\n", .{v}),
             }
             return .{ .none = {} };
         },
         .if_expr => |i| {
-            const condition = evaluate(ast, i.condition, env);
+            const condition = try evaluate(ast, i.condition, env);
             if (condition != .boolean) unreachable;
             if (condition.boolean) {
-                return evaluate(ast, i.then_branch, env);
+                return try evaluate(ast, i.then_branch, env);
             } else if (i.else_branch) |branch| {
-                return evaluate(ast, branch, env);
+                return try evaluate(ast, branch, env);
+            }
+            return .{ .none = {} };
+        },
+        .while_expr => |w| {
+            while (true) {
+                const condition = try evaluate(ast, w.condition, env);
+                if (condition != .boolean) unreachable;
+                if (!condition.boolean) break;
+                _ = try evaluate(ast, w.body, env);
+                if (w.continue_expr) |c_expr| {
+                    _ = try evaluate(ast, c_expr, env);
+                }
             }
             return .{ .none = {} };
         },
         .block => |b| {
             var last_value: Ast.Value = .{ .none = {} };
             for (b.statements) |stmt| {
-                last_value = evaluate(ast, stmt, env);
+                last_value = try evaluate(ast, stmt, env);
             }
             return last_value;
         },

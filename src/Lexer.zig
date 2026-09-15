@@ -84,9 +84,17 @@ fn readSymbol(self: *@This()) Token {
                 };
             }
         },
+        ':' => token = .{
+            .kind = .nub_colon,
+            .lexeme = ":",
+        },
         ';' => token = .{
             .kind = .nub_semicolon,
             .lexeme = ";",
+        },
+        '.' => token = .{
+            .kind = .nub_dot,
+            .lexeme = ".",
         },
         '"' => {
             self.cursor += 1;
@@ -179,15 +187,24 @@ fn readString(self: *@This()) Token {
 fn readNumber(self: *@This()) Token {
     const start = self.cursor;
 
-    while (self.source.len > self.cursor and std.ascii.isDigit(self.source[self.cursor])) {
-        self.cursor += 1;
+    var is_float = false;
+
+    while (self.source.len > self.cursor) {
+        const char = self.source[self.cursor];
+        if (std.ascii.isDigit(char)) {
+            self.cursor += 1;
+        } else if (char == '.') {
+            if (is_float) break;
+            is_float = true;
+            self.cursor += 1;
+        } else {
+            break;
+        }
     }
 
-    const lexeme = self.source[start..self.cursor];
-
     return .{
-        .kind = .nub_int,
-        .lexeme = lexeme,
+        .kind = if (is_float) .nub_float else .nub_int,
+        .lexeme = self.source[start..self.cursor],
     };
 }
 
@@ -216,6 +233,7 @@ const keyword = std.StaticStringMap(Token.Kind).initComptime(.{
     .{ "var", .nub_var },
     .{ "print", .nub_print },
     .{ "if", .nub_if },
+    .{ "while", .nub_while },
     .{ "else", .nub_else },
     .{ "true", .nub_bool },
     .{ "false", .nub_bool },

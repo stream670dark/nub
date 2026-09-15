@@ -27,7 +27,7 @@ pub fn parse(self: *@This(), env: *std.StringHashMap(Ast.Value)) !void {
     defer self.ast.deinit();
     while (self.lexer.peekToken() != .nub_eof) {
         const node = try self.parseStatement();
-        _ = Evaluator.evaluate(&self.ast, node, env);
+        _ = try Evaluator.evaluate(&self.ast, node, env);
     }
 }
 
@@ -47,6 +47,10 @@ fn parsePrimary(self: *@This()) ParseError!Ast.NodeIndex {
         .nub_int => {
             const value = try std.fmt.parseInt(i64, token.lexeme, 10);
             return try self.ast.addNode(.{ .type = .{ .int = value } });
+        },
+        .nub_float => {
+            const value = try std.fmt.parseFloat(f64, token.lexeme);
+            return try self.ast.addNode(.{ .type = .{ .float = value } });
         },
         .nub_id => {
             return try self.ast.addNode(.{ .identifier = token.lexeme });
@@ -99,7 +103,43 @@ fn parsePrimary(self: *@This()) ParseError!Ast.NodeIndex {
                 },
             });
         },
+        .nub_while => {
+            try self.expect(.nub_lparen);
+            const condition = try self.parseExpression(0);
+            try self.expect(.nub_rparen);
 
+            var continue_expr: ?Ast.NodeIndex = null;
+            if (self.lexer.peekToken() == .nub_colon) {
+                try self.expect(.nub_colon);
+                try self.expect(.nub_lparen);
+                const target = try self.parseExpression(0);
+
+                if (self.lexer.peekToken() == .nub_assign) {
+                    try self.expect(.nub_assign);
+                    const value = try self.parseExpression(0);
+                    continue_expr = try self.ast.addNode(.{
+                        .reassign = .{
+                            .target = target,
+                            .value = value,
+                        },
+                    });
+                } else {
+                    continue_expr = target;
+                }
+
+                try self.expect(.nub_rparen);
+            }
+
+            const body = try self.parseBlock();
+
+            return try self.ast.addNode(.{
+                .while_expr = .{
+                    .condition = condition,
+                    .continue_expr = continue_expr,
+                    .body = body,
+                },
+            });
+        },
         else => return error.UnexpectedToken,
     }
 }
@@ -162,7 +202,25 @@ fn parseStatement(self: *@This()) ParseError!Ast.NodeIndex {
             try self.expect(.nub_semicolon);
             return try self.ast.addNode(.{ .discard = expr });
         },
-        else => unreachable,
+        else => {
+            const expr = try self.parseExpression(0);
+
+            if (self.lexer.peekToken() == .nub_assign) {
+                try self.expect(.nub_assign);
+                const value = try self.parseExpression(0);
+                try self.expect(.nub_semicolon);
+
+                return try self.ast.addNode(.{
+                    .reassign = .{
+                        .target = expr,
+                        .value = value,
+                    },
+                });
+            }
+
+            try self.expect(.nub_semicolon);
+            return expr;
+        },
     };
 }
 
