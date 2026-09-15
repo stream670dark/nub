@@ -1,3 +1,6 @@
+// Copyright (c) 2026 stream670dark.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 const std = @import("std");
 const Token = @import("Token.zig");
 
@@ -97,6 +100,14 @@ fn readSymbol(self: *@This()) Token {
             .kind = .nub_rparen,
             .lexeme = ")",
         },
+        '{' => token = .{
+            .kind = .nub_lbrace,
+            .lexeme = "{",
+        },
+        '}' => token = .{
+            .kind = .nub_rbrace,
+            .lexeme = "}",
+        },
         '>' => {
             if (self.cursor + 1 < self.source.len and self.source[self.cursor + 1] == '=') {
                 self.cursor += 1;
@@ -124,6 +135,20 @@ fn readSymbol(self: *@This()) Token {
                     .lexeme = "<",
                 };
             }
+        },
+        '!' => {
+            if (self.cursor + 1 < self.source.len and self.source[self.cursor + 1] == '=') {
+                self.cursor += 1;
+                token = .{ .kind = .nub_not_equals, .lexeme = "!=" };
+            } else {
+                token = .{ .kind = .nub_unknown, .lexeme = "!" };
+            }
+        },
+        '_' => {
+            token = .{
+                .kind = .nub_discard,
+                .lexeme = "_",
+            };
         },
         else => token = .{
             .kind = .nub_unknown,
@@ -169,7 +194,7 @@ fn readNumber(self: *@This()) Token {
 fn readWord(self: *@This()) Token {
     const start = self.cursor;
 
-    while (self.source.len > self.cursor and std.ascii.isAlphanumeric(self.source[self.cursor])) {
+    while (self.source.len > self.cursor and (std.ascii.isAlphanumeric(self.source[self.cursor]) or self.source[self.cursor] == '_')) {
         self.cursor += 1;
     }
 

@@ -1,2 +1,13 @@
-var x = 15;
-if (x <= 10) 4 else print if (x > 11) "grande" else "pequeno";
+var idade = 18;
+
+var mensagem = if (idade >= 18) {
+    print "Analisando a idade...";
+    var x = "Maior de idade";
+    print x;
+} else {
+    print "Analisando a idade...";
+    var x = "Menor de idade";
+    print x;
+};
+
+print mensagem;

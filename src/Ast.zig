@@ -1,3 +1,6 @@
+// Copyright (c) 2026 stream670dark.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 const std = @import("std");
 const Token = @import("Token.zig");
 
@@ -9,9 +12,17 @@ pub const NodeIndex = u32;
 pub const NodeKind = union(enum) {
     type: Value,
     variable: Variable,
+    identifier: []const u8,
+    discard: NodeIndex,
+    unary_op: UnaryOp,
     binary_op: BinaryOp,
     print: NodeIndex,
     if_expr: IfExpr,
+    block: Block,
+};
+
+pub const Block = struct {
+    statements: []const NodeIndex,
 };
 
 pub const IfExpr = struct {
@@ -24,6 +35,12 @@ pub const Value = union(enum) {
     int: i64,
     string: []const u8,
     boolean: bool,
+    none: void,
+};
+
+pub const UnaryOp = struct {
+    op: Token.Kind,
+    expr: NodeIndex,
 };
 
 pub const BinaryOp = struct {

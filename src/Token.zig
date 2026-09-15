@@ -4,6 +4,7 @@
 pub const Kind = enum {
     nub_var,
     nub_const,
+    nub_discard,
 
     nub_if,
     nub_else,

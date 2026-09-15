@@ -1,3 +1,6 @@
+// Copyright (c) 2026 stream670dark.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 const std = @import("std");
 const Token = @import("Token.zig");
 const Ast = @import("Ast.zig");
@@ -6,7 +9,6 @@ const Evaluator = @import("Evaluator.zig");
 
 lexer: Lexer,
 ast: Ast,
-variables: std.StringHashMap(Ast.NodeIndex),
 
 const ParseError = error{
     UnexpectedToken,
@@ -18,51 +20,14 @@ pub fn init(allocator: std.mem.Allocator, source: []const u8) @This() {
     return .{
         .lexer = Lexer.init(source),
         .ast = Ast.init(allocator),
-        .variables = std.StringHashMap(Ast.NodeIndex).init(allocator),
     };
 }
 
-pub fn parse(self: *@This()) !void {
+pub fn parse(self: *@This(), env: *std.StringHashMap(Ast.Value)) !void {
     defer self.ast.deinit();
-    defer self.variables.deinit();
     while (self.lexer.peekToken() != .nub_eof) {
-        const token = self.lexer.peekToken();
-        switch (token) {
-            .nub_var => {
-                _ = self.lexer.nextToken();
-                const name = self.lexer.nextToken();
-                _ = self.lexer.nextToken();
-                const expr = try self.parseExpression(0);
-                try self.expect(.nub_semicolon);
-                _ = try self.ast.addNode(.{
-                    .variable = .{
-                        .name = name.lexeme,
-                        .kind = null,
-                        .value = expr,
-                    },
-                });
-                try self.variables.put(name.lexeme, expr);
-            },
-            .nub_int, .nub_id => {
-                const tree = try self.parseExpression(0);
-                _ = Evaluator.evaluate(&self.ast, tree);
-            },
-
-            .nub_print => {
-                _ = self.lexer.nextToken();
-                const expr = try self.parseExpression(0);
-                try self.expect(.nub_semicolon);
-                const node = try self.ast.addNode(.{ .print = expr });
-                _ = Evaluator.evaluate(&self.ast, node);
-            },
-            .nub_if => {
-                const tree = try self.parseExpression(0);
-                _ = Evaluator.evaluate(&self.ast, tree);
-            },
-            else => {
-                _ = self.lexer.nextToken();
-            },
-        }
+        const node = try self.parseStatement();
+        _ = Evaluator.evaluate(&self.ast, node, env);
     }
 }
 
@@ -84,8 +49,7 @@ fn parsePrimary(self: *@This()) ParseError!Ast.NodeIndex {
             return try self.ast.addNode(.{ .type = .{ .int = value } });
         },
         .nub_id => {
-            const node_index = self.variables.get(token.lexeme) orelse return error.UndefinedVariable;
-            return node_index;
+            return try self.ast.addNode(.{ .identifier = token.lexeme });
         },
         .nub_string => {
             return try self.ast.addNode(.{ .type = .{ .string = token.lexeme } });
@@ -98,12 +62,20 @@ fn parsePrimary(self: *@This()) ParseError!Ast.NodeIndex {
             try self.expect(.nub_lparen);
             const condition = try self.parseExpression(0);
             try self.expect(.nub_rparen);
-            const then_branch = try self.parseExpression(0);
+            const then_branch =
+                if (self.lexer.peekToken() == .nub_lbrace)
+                    try self.parseBlock()
+                else
+                    try self.parseExpression(0);
 
             var else_branch: ?Ast.NodeIndex = null;
             if (self.lexer.peekToken() == .nub_else) {
                 try self.expect(.nub_else);
-                else_branch = try self.parseExpression(0);
+                else_branch =
+                    if (self.lexer.peekToken() == .nub_lbrace)
+                        try self.parseBlock()
+                    else
+                        try self.parseExpression(0);
             }
 
             return try self.ast.addNode(.{
@@ -118,6 +90,16 @@ fn parsePrimary(self: *@This()) ParseError!Ast.NodeIndex {
             const expr = try self.parseExpression(0);
             return try self.ast.addNode(.{ .print = expr });
         },
+        .nub_minus => {
+            const expr = try self.parseExpression(100);
+            return try self.ast.addNode(.{
+                .unary_op = .{
+                    .op = .nub_minus,
+                    .expr = expr,
+                },
+            });
+        },
+
         else => return error.UnexpectedToken,
     }
 }
@@ -151,18 +133,53 @@ fn parseExpression(self: *@This(), min_bp: u8) ParseError!Ast.NodeIndex {
 fn parseStatement(self: *@This()) ParseError!Ast.NodeIndex {
     const token = self.lexer.peekToken();
     return switch (token) {
+        .nub_var => {
+            try self.expect(.nub_var);
+            const name = self.lexer.nextToken();
+            try self.expect(.nub_assign);
+            const expr = try self.parseExpression(0);
+            try self.expect(.nub_semicolon);
+            const node = try self.ast.addNode(.{
+                .variable = .{
+                    .name = name.lexeme,
+                    .kind = null,
+                    .value = expr,
+                },
+            });
+            return node;
+        },
         .nub_print => {
             _ = self.lexer.nextToken();
             const expr = try self.parseExpression(0);
             try self.expect(.nub_semicolon);
-            return try self.ast.addNode(.{ .print = expr });
+            const node = try self.ast.addNode(.{ .print = expr });
+            return node;
         },
-        else => {
+        .nub_discard => {
+            try self.expect(.nub_discard);
+            try self.expect(.nub_assign);
             const expr = try self.parseExpression(0);
             try self.expect(.nub_semicolon);
-            return expr;
+            return try self.ast.addNode(.{ .discard = expr });
         },
+        else => unreachable,
     };
+}
+
+fn parseBlock(self: *@This()) ParseError!Ast.NodeIndex {
+    try self.expect(.nub_lbrace);
+    var statements: std.ArrayList(Ast.NodeIndex) = .empty;
+    defer statements.deinit(self.ast.allocator);
+    while (self.lexer.peekToken() != .nub_rbrace) {
+        if (self.lexer.peekToken() == .nub_eof) break;
+        try statements.append(self.ast.allocator, try self.parseStatement());
+    }
+
+    try self.expect(.nub_rbrace);
+
+    const nodes = try statements.toOwnedSlice(self.ast.allocator);
+
+    return self.ast.addNode(.{ .block = .{ .statements = nodes } });
 }
 
 fn expect(self: *@This(), kind: Token.Kind) !void {

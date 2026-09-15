@@ -3,10 +3,11 @@
 
 const std = @import("std");
 const Parser = @import("Parser.zig");
+const Ast = @import("Ast.zig");
 
 pub fn main(init: std.process.Init) !void {
-    var args = try init.minimal.args.iterateAllocator(init.gpa);
-    defer args.deinit();
+    const ArenaAllocator = init.arena;
+    var args = try init.minimal.args.iterateAllocator(ArenaAllocator.allocator());
 
     _ = args.skip();
 
@@ -20,9 +21,9 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, filepath, init.gpa, .unlimited);
-    defer init.gpa.free(source);
+    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, filepath, ArenaAllocator.allocator(), .unlimited);
 
-    var parser = Parser.init(init.gpa, source);
-    try parser.parse();
+    var parser = Parser.init(ArenaAllocator.allocator(), source);
+    var env = std.StringHashMap(Ast.Value).init(ArenaAllocator.allocator());
+    try parser.parse(&env);
 }
