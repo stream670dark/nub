@@ -1,0 +1,22 @@
+var a = 10.5;
+var b = 2.5;
+
+print "--- Matematica Basica ---";
+print a + b; 
+print a - b;
+print a * b;
+print a / b;
+
+print "--- Numero Negativo ---";
+print -a;
+
+print "--- Comparacoes ---";
+print a > b;
+print a == 10.5;
+print a != b;
+
+print "--- While com Floats ---";
+var contador = 0.0;
+while (contador < 2.5) : (contador = contador + 0.5) {
+    print contador;
+};

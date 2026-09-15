@@ -1,0 +1,13 @@
+var a = "Hello, ";
+var b = "World!";
+
+var c = a + b;
+
+var x = if (a != "Hello,") {
+    true;
+} else {
+    false;
+};
+
+print x;
+print c;

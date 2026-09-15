@@ -2,12 +2,10 @@ var idade = 18;
 
 var mensagem = if (idade >= 18) {
     print "Analisando a idade...";
-    var x = "Maior de idade";
-    print x;
+    "Maior de idade";
 } else {
     print "Analisando a idade...";
-    var x = "Menor de idade";
-    print x;
+    "Menor de idade";
 };
 
 print mensagem;

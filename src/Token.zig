@@ -8,9 +8,11 @@ pub const Kind = enum {
 
     nub_if,
     nub_else,
+    nub_while,
 
     nub_id,
     nub_int,
+    nub_float,
     nub_string,
     nub_bool,
 
@@ -21,7 +23,9 @@ pub const Kind = enum {
     nub_assign,
     nub_asterisk,
     nub_slash,
+    nub_colon,
     nub_semicolon,
+    nub_dot,
     nub_equals,
     nub_not_equals,
     nub_less_than,

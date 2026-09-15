@@ -18,11 +18,19 @@ pub const NodeKind = union(enum) {
     binary_op: BinaryOp,
     print: NodeIndex,
     if_expr: IfExpr,
+    while_expr: WhileExpr,
     block: Block,
+    reassign: Reassign,
 };
 
 pub const Block = struct {
     statements: []const NodeIndex,
+};
+
+pub const WhileExpr = struct {
+    condition: NodeIndex,
+    continue_expr: ?NodeIndex,
+    body: NodeIndex,
 };
 
 pub const IfExpr = struct {
@@ -33,6 +41,7 @@ pub const IfExpr = struct {
 
 pub const Value = union(enum) {
     int: i64,
+    float: f64,
     string: []const u8,
     boolean: bool,
     none: void,
@@ -52,6 +61,11 @@ pub const BinaryOp = struct {
 pub const Variable = struct {
     name: []const u8,
     kind: ?[]const u8,
+    value: NodeIndex,
+};
+
+pub const Reassign = struct {
+    target: NodeIndex,
     value: NodeIndex,
 };
 
